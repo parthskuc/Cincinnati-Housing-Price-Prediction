@@ -1,0 +1,822 @@
+---
+title: "Cincinnati Housing Price Prediction"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+```{r}
+```
+# {.tabset}
+
+## Introduction
+
+The goal of this project is to predict the house prices in city of Cincinnati by observing the potential predictive power of a number of variables on the house prices. Our assumption prior to starting this project is that the sold prices of houses should be correlated to and perhaps predicted by various external indicators. For example, the notion was that if a house has more bedrooms/bathrooms, then the house sale price would be higher than that of the houses with less number of bedrooms/bathrooms.
+Currently our data has 380 observations, we plan to add more observations to enhance our model. Through several iterations of this analysis we are hoping to eliminate unnecessary and irrelevant regressor variables and end up with a simplified regression equation to get the best possible prediction. We began with the following 16 covariates with 1 response variable: 1. Sold Price: Our response variable. 2. Zip Code 3. Sold Date 4. Number of bedrooms 5. Number of full bathrooms 6. Number of half bathrooms 7. Stories 8. Year Built 9. Sqft 10. Lot Size 11. Total number of rooms 12. School Distance 13. Parking Capacity 14. Parking Size 15. Basement Size 16. Lawn 17. Patio
+We created 18 different models using different transformations and finnaly decided to settle in for the 6th model.
+
+Our observed Multiple R-squared is **0.7584 and Adjusted R-squared is 0.7538**.
+
+The Prediction R-squared is **0.7339898**.
+
+**Final equation of model is** : Sold_price= 9.206e+01+ 7.154e+00No_of_fullbath + -3.691e+00No_of_bedrooms+ 3.832e+00Parking_Capacity + -1.767e+00Zipcode_bin + 1.223e+00Total_rooms+ 1.019e-04med_price + 6.490e+00*No_of_halfbath
+
+
+## Data Preparation
+```{r}
+#Loading the required packages
+library(readxl)      # To read in the data
+library(tidyverse)   # For general data manipulation and regression analysis
+library(knitr)       # To format tables
+library(DAAG)
+library(ggplot2)     # To visualize data
+library(psych)
+library(qwraps2)
+library(naniar)
+library(formattable) # To format tables into currency
+library(dplyr)
+```
+### Loading the dataset
+```{r}
+data <- read_xlsx("dataf.xlsx")
+#removig the columns with URl and teammates names
+#data <- data[,-c(1,2,3)] #already done on excel
+data
+```
+### Replacing all missing data with N/A
+```{r}
+data <- data %>%replace_with_na_all(condition = ~.x %in% common_na_strings)
+```
+
+### Coercing covariates to proper datatypes
+```{r}
+data$Zipcode <- as.factor(data$Zipcode)
+data$Lawn <- as.factor(data$Lawn)
+data$Patio <- as.factor(data$Patio)
+data$Year_built <- as.numeric(data$Year_built)
+data$Parking_Capacity <- as.numeric(data$Parking_Capacity)
+data$Lotsize_sqft <- as.numeric(data$Lotsize_sqft)
+data$Sold_price <- as.numeric(data$Sold_price)
+data$Sqft <- as.numeric(data$Sqft)
+data$Total_rooms <- as.numeric(data$Total_rooms)
+```
+
+## Desribing data
+
+We see there are 381 total rows and some of the variables have lesser rows. It needs to be checked which variables are missing vslues and what percentage.
+
+### Checking for duplicate rows.
+```{r}
+data[!duplicated(data[1:17]),]
+```
+We don't find any duplicate rows. That's good.
+
+```{r}
+#checking for null values in the data
+colSums(is.na(data))
+```
+Parking_Size and Basement_size have a major chunk of data missing. Let's calculate the percentage of missing data.
+```{r}
+sum(is.na(data$Parking_Size))*100/nrow(data)
+```
+Parking_Size has 27.5 % missing values. We can consider imputing the missing values here.
+
+```{r}
+sum(is.na(data$Basement_size))*100/nrow(data)
+```
+Basement_Size has 67% null values which is not a good sign for our predicting model and it's not advisable to impute such large missing values.
+So we'll drop this column from our dataset.
+
+```{r}
+data <- data[,-15]
+```
+Meanwhile, Imputing the missing values in Parking_Size by median, we'll do the same for Total_rooms since it has only a small precentage of missing data.
+
+### Imputing median into missing rows.
+```{r}
+
+data$Parksize_imp <- ifelse(is.na(data$Parking_Size), median(data$Parking_Size, na.rm=TRUE), data$Parking_Size)
+data$Total_rooms <- ifelse(is.na(data$Total_rooms), median(data$Total_rooms, na.rm=TRUE), data$Total_rooms)
+
+```
+We'll replace the missing values in other column by 0, since it seems that if data about Half_Bathrooms, Parking capacity, Lawna and Patio is missing, a reasonable argument seems that it might not be present.
+
+```{r}
+data[is.na(data)] <- 0
+colSums(is.na(data))
+```
+We don't have any missing values in our dataset now.
+
+
+## Analysis
+
+Proceeding with the analysis, we can strengthen our analysis by adding the data
+of median prices of houses per square feet. The size of the house surely plays a major role in price of the house and the data provided by zillow according to the zipcodes and median prices per month accross years has been taken into consideration.
+
+```{r}
+#loading the median price per squarefeet dataset
+price <-read_xlsx("MedianValuePerSqft.xlsx")
+price
+```
+This dataset has pricing data from 1970s which is not useful for our analysis.
+But we want to filter this dataset for only zip codes of interest, which are Cincinnati zip codes.
+```{r}
+price_f <- filter(price, Zip %in% unique(data$Zipcode))
+
+```
+With this information, we can calculate an average of the median prices from the last 11 months (January 2019 - November 2019) for each zip code. We will create a new variable for the mean price.
+```{r}
+price_avgmed <- data.frame(ID=price_f[,2], Means=rowMeans(price_f[,7:16]))
+price_avgmed
+```
+### Merging both datasets
+```{r}
+data$Zipcode <- as.character(data$Zipcode)
+price_avgmed$Zip <- as.character(price_avgmed$Zip)
+data1 <- left_join(x = data, y = price_avgmed, by = c("Zipcode" = "Zip"))
+```
+
+ With the help of mean of the median price we can calculate a new column of data called med_price, which is the price of house calculated by multiplying the size of house(Sqft) and Average median (Means).
+
+```{r}
+data2 <- data1 %>% mutate(med_price = Sqft * Means)
+data2
+data <- data2[,-18]
+data$Zipcode <- as.factor(data$Zipcode )
+```
+
+### removing sold_date variable
+```{r}
+
+data <-data[,-3]
+```
+
+
+```{r,include=FALSE}
+data$med_price <- ifelse(is.na(data$med_price), median(data$med_price, na.rm=TRUE), data$med_price)
+```
+
+
+```{r}
+colSums(is.na(data))
+
+```
+ Instead of using the variable year_built, we can use it to get the age of the house which seems a more reasonable factor to put into our model.
+
+```{r}
+#Getting age of the house
+data$age <- 2019 - data$Year_built
+```
+
+
+### Data Preview
+
+```{r}
+dim(data)
+```
+```{r}
+summary(data)
+```
+
+### Visualizing the data.
+```{r}
+ggplot(data, aes(Sold_price)) + 
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, 
+                color = "red",
+                args = list(mean = mean(data$Sold_price),
+                            sd = sd(data$Sold_price))) + 
+  ggtitle("Plot of SalePrice Distribution") +
+  theme(plot.title = element_text(size = 11))
+```
+
+The Price data is positively skewed but considering the fact that the general population belongs poor to middle class, it is accepted these people will have cheaper houses. And there will be few costly houses.
+```{r}
+boxplot(data$Sold_price)
+```
+
+
+That means most of the houses will also be smaller in size and we can expect size of house to show a similar behavior. Let's check it.
+```{r}
+ggplot(data, aes(Sqft)) + 
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, 
+                color = "blue",
+                args = list(mean = mean(data$Sqft),
+                            sd = sd(data$Sold_price))) + 
+  ggtitle("Plot of House Size Distribution") +
+  theme(plot.title = element_text(size = 11))
+```
+
+This is obviously expected behavior.
+
+```{r}
+boxplot(data$Sqft)
+```
+
+```{r}
+ggplot(data, aes(Lotsize_sqft)) + 
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, 
+                color = "red",
+                args = list(mean = mean(data$Lotsize_sqft),
+                            sd = sd(data$Lotsize_sqft))) + 
+  ggtitle("Plot of Lotsize_sqft Distribution") +
+  theme(plot.title = element_text(size = 11))
+```
+
+### Let's check the age of the houses in Cincinnati and their distribution.
+
+```{r}
+ggplot(data, aes(age)) + 
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, 
+                color = "blue",
+                args = list(mean = mean(data$age),
+                            sd = sd(data$age))) + 
+  ggtitle("Plot of age Distribution") +
+  theme(plot.title = element_text(size = 11))
+```
+
+The ages of the house suprisingly follows a normal distribution. 
+
+```{r}
+
+pairs.panels(data[c("Sold_price","No_of_bedrooms","No_of_fullbath","No_of_halfbath","Stories","Year_built","Sqft","Lotsize_sqft","Parking_Size","Parking_Capacity","Lawn","Patio","Zipcode","age","med_price")],hist.col = "green",gap=0)
+```
+
+### Breaking it into clusters to understand the relations better.
+
+```{r}
+pairs.panels(data[c("Sold_price","No_of_bedrooms","No_of_fullbath","No_of_halfbath","Stories")],hist.col = "blue",gap=0)
+```
+
+```{r}
+pairs.panels(data[c("Sold_price","Sqft","Lotsize_sqft","Parking_Size","Parking_Capacity")],hist.col = "red",gap=0)
+```
+
+```{r}
+pairs.panels(data[c("Sold_price","Lawn","Patio","Zipcode","age","med_price")],hist.col = "green",gap=0)
+
+```
+
+
+### We have a lot of Zipcodes in our dataset. What we can do is categorize the zipcodes into bins according to the neighborhoods i.e. best to worst.
+
+[This website](https://www.niche.com/places-to-live/search/best-zip-codes-to-live/m/cincinnati-metro-area/) provides a ranking of the best to worst zipcodes in cincinnati which is being used to create bins of the data.
+```{r}
+data$Zipcode_bin <- 0
+
+data[which(data$Zipcode==45040|data$Zipcode==45242|data$Zipcode==45243|data$Zipcode==45209|data$Zipcode==45249|data$Zipcode==45208|data$Zipcode==45226|data$Zipcode==45202|data$Zipcode==45069|data$Zipcode==45241|data$Zipcode==41075|data$Zipcode==45255),"Zipcode_bin"] <- 1
+
+
+data[which(data$Zipcode==45174|data$Zipcode==41017|data$Zipcode==45230|
+             data$Zipcode==45236|data$Zipcode==45039|data$Zipcode==45220|data$Zipcode==45140|data$Zipcode==45065|data$Zipcode==45213|data$Zipcode==41048|data$Zipcode==45246),"Zipcode_bin"] <- 2
+
+
+
+data[which(data$Zipcode==41011|data$Zipcode==41091|data$Zipcode==45223|data$Zipcode==41073|data$Zipcode==41076|data$Zipcode==45150|data$Zipcode==45212|data$Zipcode==45248|data$Zipcode==45248|data$Zipcode==45036|data$Zipcode==41042|data$Zipcode==45215|data$Zipcode==41071|data$Zipcode==45050|data$Zipcode==45245|data$Zipcode==45014|data$Zipcode==41005),"Zipcode_bin"] <- 3
+
+
+data[which(data$Zipcode==45206|data$Zipcode==45224|data$Zipcode==45238|data$Zipcode==41094|data$Zipcode==45247|data$Zipcode==41018|data$Zipcode==41001|data$Zipcode==41059|data$Zipcode==45211|data$Zipcode==45011|data$Zipcode==45152|data$Zipcode==45240|data$Zipcode==45217|data$Zipcode==45044|data$Zipcode==45034|data$Zipcode==45002|data$Zipcode==41051|data$Zipcode==45239|data$Zipcode==45218|data$Zipcode==45103|data$Zipcode==45252),"Zipcode_bin"] <- 4
+
+data[which(data$Zipcode==47025|data$Zipcode==45204|data$Zipcode==41015|data$Zipcode==45231|data$Zipcode==41014|data$Zipcode==45013|data$Zipcode==45157|data$Zipcode==45030|data$Zipcode==41016|data$Zipcode==45005|data$Zipcode==45102|data$Zipcode==45216|data$Zipcode==45237),"Zipcode_bin"] <- 5
+
+```
+
+```{r}
+data$Zipcode_bin
+```
+
+## Modelling
+
+We'll now fit our first model.
+
+```{r}
+model1<-(lm(Sold_price~No_of_fullbath+No_of_bedrooms+Sqft+Parksize_imp+Parking_Capacity+Zipcode_bin+Stories+Total_rooms+med_price+No_of_halfbath+School_distance+Lotsize_sqft+age, data = data))
+
+summary(model1)
+
+```
+The F-statistic comes less than 0.05 which means the model is significant. The adjusted R-squared of 0.7573 suggests a strong model.
+
+Our model should satisfy the following four criteria.
+1)**Linearity**
+2)**Independent Errors**
+3)**Normality assumption**
+4)**Equal variance**
+
+Let's see the model statistics.
+
+```{r}
+plot(model1)
+
+```
+We can make the following observations from this model of ours.
+
+1)The residuals vs Fitted Values graph indicates a nonconstant variance.
+2)The normal Q-Q plot indicates that the distribution has heavy tails, but otherwise is symmetrical
+3)Observations 373,372 and 215 seem to be the two identifiable outliers.
+
+
+### Let's try some transformations on our model, which may potentially solve our **LINE**  assumptions.
+
+We saw that our Sold_price and Sqft(size of house) were positively skewed. Let's try **Log**
+transformation of the variables which are skewed.
+
+### Log transformation
+```{r}
+(MSRes=summary(model1)$sigma^2)
+```
+
+```{r}
+#log transformation of Sold_price
+ggplot(data, aes(log(Sold_price))) + 
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, 
+                color = "red",
+                args = list(mean = mean(log(data$Sold_price)),
+                            sd = sd(log(data$Sold_price)))) + 
+  ggtitle("Plot of log(SalePrice) Distribution") +
+  theme(plot.title = element_text(size = 11))
+```
+
+```{r}
+#log transformation of Sqft
+ggplot(data, aes(log(Sqft))) + 
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, 
+                color = "red",
+                args = list(mean = mean(log(data$Sqft)),
+                            sd = sd(log(data$Sqft)))) + 
+  ggtitle("Plot of log(Sqft) Distribution") +
+  theme(plot.title = element_text(size = 11))
+```
+
+```{r}
+ggplot(data, aes(log(Lotsize_sqft))) + 
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, 
+                color = "red",
+                args = list(mean = mean(log(data$Lotsize_sqft)),
+                            sd = sd(log(data$Lotsize_sqft)))) + 
+  ggtitle("Plot of log(Lotsize_sqft) Distribution") +
+  theme(plot.title = element_text(size = 11))
+
+```
+
+```{r}
+ggplot(data, aes(log(School_distance))) + 
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(fun = dnorm, 
+                color = "red",
+                args = list(mean = mean(log(data$School_distance)),
+                            sd = sd(log(data$School_distance)))) + 
+  ggtitle("Plot of log(School_distance) Distribution") +
+  theme(plot.title = element_text(size = 11))
+```
+
+
+Let's try modelling with our transformed variables and see if that works for us.
+
+
+```{r}
+model2<-(lm(log(Sold_price)~No_of_fullbath+No_of_bedrooms+log(Sqft)+Parksize_imp+Parking_Capacity+Zipcode_bin+Stories+Total_rooms+med_price+No_of_halfbath+log(School_distance)+log(Lotsize_sqft)+age, data = data))
+
+summary(model2)
+```
+So, obviously log transformation doesn't quite work on our data. The R-squared has decreased considerably and model2 is weaker than model1.
+```{r}
+plot(model2)
+```
+
+## Transformations
+
+**Boxcox Transformation** 
+
+```{r}
+#using aliases for convenience
+attach(data)
+y<-Sold_price
+x1<-No_of_fullbath
+x2<-No_of_bedrooms
+x3<-Sqft
+x4<-Parksize_imp
+x5<-Parking_Capacity
+x6<-Zipcode_bin
+x13<-Zipcode
+x7<-Stories
+x8<-Total_rooms
+x9<-med_price
+x10<-No_of_halfbath
+x11<-School_distance
+x12<-Lotsize_sqft
+x14<-age
+```
+
+```{r}
+model3<-(lm(y ~ x1+x2+x3+x4+x5
+            +x6+x7+x8+x9+x10+x11+x12+x14
+            , data = data))
+summary(model3)
+(MSRes=summary(model3)$sigma^2)
+```
+
+
+```{r}
+bc<-MASS::boxcox(y ~ x1+x2+x3+x4+x5
+                 +x6+x7+x8+x9+x10+x11+x12+x14)
+```
+```{r}
+(lambda <- bc$x[which.max(bc$y)])
+```
+```{r}
+data$y2 <- (data$Sold_price ^ lambda - 1) / lambda
+```
+
+```{r}
+model4<-(lm(y2 ~ x1+x2+x3+x4+x5
+            +x6+x7+x8+x9+x10+x11+x12+x14,data=data))
+
+summary(model4)
+
+```
+```{r}
+( MSRes=summary(model4)$sigma^2 )
+```
+This model seems good, and the Mean Squared Residual also looks okay.
+
+
+```{r}
+model6<-(lm(y2 ~ No_of_fullbath+No_of_bedrooms+Parking_Capacity+Zipcode_bin+Total_rooms+med_price+No_of_halfbath,data=data))
+
+summary(model6)
+```
+
+
+Let's check the performance of this model.
+
+
+```{r}
+plot(model6)
+```
+## Issues
+
+Let's try to use the original Zipcode variable instead of Zipcode_bin
+
+### checking for variance inflation factors. 
+```{r}
+#install.packages("glmnet")
+library(glmnet)
+```
+```{r}
+library(MASS)
+vif <- function(mod, ...) {
+    if (any(is.na(coef(mod)))) 
+        stop ("there are aliased coefficients in the model")
+    v <- vcov(mod)
+    assign <- attr(model.matrix(mod), "assign")
+    if (names(coefficients(mod)[1]) == "(Intercept)") {
+        v <- v[-1, -1]
+        assign <- assign[-1]
+    }
+    else warning("No intercept: vifs may not be sensible.")
+    terms <- labels(terms(mod))
+    n.terms <- length(terms)
+    if (n.terms < 2) stop("model contains fewer than 2 terms")
+    R <- cov2cor(v)
+    detR <- det(R)
+    result <- matrix(0, n.terms, 3)
+    rownames(result) <- terms
+    colnames(result) <- c("GVIF", "Df", "GVIF^(1/(2*Df))")
+    for (term in 1:n.terms) {
+        subs <- which(assign == term)
+        result[term, 1] <- det(as.matrix(R[subs, subs])) *
+            det(as.matrix(R[-subs, -subs])) / detR
+        result[term, 2] <- length(subs)
+    }
+    if (all(result[, 2] == 1)) result <- result[, 1]
+    else result[, 3] <- result[, 1]^(1/(2 * result[, 2]))
+    result
+}
+
+```
+
+```{r}
+vif(model6)
+```
+We can see that vif values are less than 10, and we can say variance influence factors are not present in our variables. And we can say our dataset doesn't suffer from multicollinearity.
+
+We don't need to perform ridge regression.
+
+
+## Variable Selection
+
+We will try to use Stepwise regression to get out the best model.
+
+1)Forward Selection
+
+```{r}
+attach(data)
+y<-Sold_price
+x1<-No_of_fullbath
+x2<-No_of_bedrooms
+x3<-Sqft
+x4<-Parksize_imp
+x5<-Parking_Capacity
+x6<-Zipcode_bin
+x13<-Zipcode
+x7<-Stories
+x8<-Total_rooms
+x9<-med_price
+x10<-No_of_halfbath
+x11<-School_distance
+x12<-Lotsize_sqft
+x14<-age
+```
+
+```{r}
+add1(lm(y~1,data=data), y~x1+x2+x3+x4+x5+x6+x7+x8+x9+x10+x11+x12+x14, test="F")
+```
+
+
+```{r}
+
+add1(lm(y~x12,data=data), y~x1+x2+x3+x4+x5+x6+x7+x8+x9+x10+x11+x12+x14, test="F")
+```
+
+
+
+```{r}
+add1(lm(y~x12+x1,data=data), y~x1+x2+x3+x4+x5+x6+x7+x8+x9+x10+x11+x12+x14, test="F")
+```
+
+
+```{r}
+add1(lm(y~x12+x1+x3,data=data), y~x1+x2+x3+x4+x5+x6+x7+x8+x9+x10+x11+x12+x14, test="F")
+
+```
+
+```{r}
+add1(lm(y~x12+x1+x3+x9,data=data), y~x1+x2+x3+x4+x5+x6+x7+x8+x9+x10+x11+x12+x14, test="F")
+```
+
+
+```{r}
+model7<- lm(y~x12+x1+x3+x9,data=data)
+summary(model7)
+```
+### Backward Selection
+
+```{r}
+drop1(lm(y~x1+x2+x3+x4+x5+x6+x7+x8+x9+x10+x11+x12+x14,data=data), test="F")
+```
+```{r}
+drop1(lm(y~x1+x2+x3+x4+x6+x7+x8+x9+x10+x11+x12+x14,data=data), test="F")
+```
+```{r}
+drop1(lm(y~x1+x2+x4+x3+x6+x7+x8+x9+x10+x11+x12,data=data), test="F")
+```
+```{r}
+drop1(lm(y~x1+x2+x4+x3+x8+x9+x6+x11+x12,data=data), test="F")
+```
+```{r}
+drop1(lm(y~x1+x2+x4+x3+x8+x9+x11+x12,data=data), test="F")
+```
+```{r}
+drop1(lm(y~x1+x2+x4+x6+x9+x11+x12,data=data), test="F")
+```
+```{r}
+drop1(lm(y~x1+x2+x4+x8+x9+x11,data=data), test="F")
+```
+
+```{r}
+drop1(lm(y~x1+x2+x4+x9+x11,data=data), test="F")
+```
+```{r}
+drop1(lm(y~x1+x2+x4+x9,data=data), test="F")
+```
+
+```{r}
+model8<-lm(y~x1+x2+x4+x9,data=data)
+summary(model8)
+```
+We are getting the same results.
+
+## Model Validation
+
+This is our final model.
+
+```{r}
+summary(model6)
+```
+
+```{r}
+MSRes=summary(model6)$sigma^2
+MSRes
+summary(model6)$sigma
+```
+
+
+```{r}
+library(DAAG)
+```
+
+
+## Testing
+
+```{r}
+df<-read_xlsx("testing.xlsx")
+df
+```
+```{r}
+colSums(is.na(df))
+```
+We drop the basement_size here because our model isn't trained on this.
+
+
+```{r}
+df
+```
+
+
+```{r}
+df$Parking_Capacity <- ifelse(is.na(df$Parking_Capacity), median(df$Parking_Capacity, na.rm=TRUE), df$Parking_Capacity)
+df$Parking_Size <- ifelse(is.na(df$Parking_Size), median(df$Parking_Size, na.rm=TRUE), df$Parking_Size)
+```
+
+
+```{r}
+df <- df %>%replace_with_na_all(condition = ~.x %in% common_na_strings)
+```
+
+
+```{r}
+df$Zipcode <- as.factor(df$Zipcode)
+
+df$Year_built <- as.numeric(df$Year_built)
+df$Parking_Capacity <- as.numeric(df$Parking_Capacity)
+
+df$Sold_price <- as.numeric(df$Sold_price)
+
+df$Total_rooms <- as.numeric(df$Total_rooms)
+
+```
+
+
+```{r}
+price <-read_xlsx("MedianValuePerSqft.xlsx")
+price
+
+price_ft <- filter(price, Zip %in% unique(df$Zipcode))
+
+```
+
+```{r}
+price_avgmedt <- data.frame(ID=price_ft[,2], Means=rowMeans(price_ft[,7:16]))
+price_avgmedt
+
+df$Zipcode <- as.character(df$Zipcode)
+price_avgmedt$Zip <- as.character(price_avgmedt$Zip)
+df1 <- left_join(x = df, y = price_avgmedt, by = c("Zipcode" = "Zip"))
+```
+
+
+
+```{r}
+df2 <- df1 %>% mutate(med_price = Sqft * Means)
+df2
+df <- df2[,-18]
+df$Zipcode <- as.factor(df$Zipcode )
+```
+
+```{r}
+df
+df <-df[,-3]
+df
+df$med_price <- ifelse(is.na(df$med_price), median(df$med_price, na.rm=TRUE), df$med_price)
+
+```
+
+
+
+
+```{r}
+df$Zipcode_bin <- 0
+
+df[which(df$Zipcode==45040|df$Zipcode==45242|df$Zipcode==45243|df$Zipcode==45209|df$Zipcode==45249|df$Zipcode==45208|df$Zipcode==45226|df$Zipcode==45202|df$Zipcode==45069|df$Zipcode==45241|df$Zipcode==41075|df$Zipcode==45255),"Zipcode_bin"] <- 1
+
+
+df[which(df$Zipcode==45174|df$Zipcode==41017|df$Zipcode==45230|
+             df$Zipcode==45236|df$Zipcode==45039|df$Zipcode==45220|df$Zipcode==45140|df$Zipcode==45065|df$Zipcode==45213|df$Zipcode==41048|df$Zipcode==45246),"Zipcode_bin"] <- 2
+
+
+
+df[which(df$Zipcode==41011|df$Zipcode==41091|df$Zipcode==45223|df$Zipcode==41073|df$Zipcode==41076|df$Zipcode==45150|df$Zipcode==45212|df$Zipcode==45248|df$Zipcode==45248|df$Zipcode==45036|df$Zipcode==41042|df$Zipcode==45215|df$Zipcode==41071|df$Zipcode==45050|df$Zipcode==45245|df$Zipcode==45014|df$Zipcode==41005),"Zipcode_bin"] <- 3
+
+
+df[which(df$Zipcode==45206|df$Zipcode==45224|df$Zipcode==45238|df$Zipcode==41094|df$Zipcode==45247|df$Zipcode==41018|df$Zipcode==41001|df$Zipcode==41059|df$Zipcode==45211|df$Zipcode==45011|df$Zipcode==45152|df$Zipcode==45240|df$Zipcode==45217|df$Zipcode==45044|df$Zipcode==45034|df$Zipcode==45002|df$Zipcode==41051|df$Zipcode==45239|df$Zipcode==45218|df$Zipcode==45103|df$Zipcode==45252),"Zipcode_bin"] <- 4
+
+df[which(df$Zipcode==47025|df$Zipcode==45204|df$Zipcode==41015|df$Zipcode==45231|df$Zipcode==41014|df$Zipcode==45013|df$Zipcode==45157|df$Zipcode==45030|df$Zipcode==41016|df$Zipcode==45005|df$Zipcode==45102|df$Zipcode==45216|df$Zipcode==45237),"Zipcode_bin"] <- 5
+
+
+```
+
+```{r}
+df
+```
+```{r}
+myvars <- df[c("No_of_fullbath", "No_of_bedrooms","Parking_Capacity","Zipcode_bin","Total_rooms","med_price","No_of_halfbath")]
+myvars<-data.frame(myvars)
+```
+
+```{r}
+myvars
+```
+
+```{r}
+
+testing1 = predict(model6, myvars, interval = c("confidence"), level = 0.95, type="response")
+testing1
+
+```
+
+```{r}
+model6
+summary(model6)
+```
+
+```{r}
+#sapply(df, names)
+ytest <- df['Sold_price']
+```
+
+
+```{r}
+ytest_t <- (ytest ^ lambda - 1) / lambda
+ytest_t
+
+```
+
+```{r}
+ypred<-testing1[,1]
+ypred
+```
+
+```{r}
+prediction_error = ytest_t-testing1[,1]
+prediction_error
+```
+
+
+```{r}
+PRESS <- function(linear.model) {
+  #' calculate the predictive residuals
+  pr <- residuals(linear.model)/(1-lm.influence(linear.model)$hat)
+  #' calculate the PRESS
+  PRESS <- sum(pr^2)
+  return(PRESS)
+}
+```
+
+
+```{r}
+MSPE <- function(linear.model) {
+  #' calculate the MSPE =PRESS/sample size
+  return(PRESS(linear.model)/length(residuals(linear.model)))
+}
+```
+
+```{r}
+pred_r_squared <- function(linear.model) {
+  #' Use anova() to get the sum of squares for the linear model
+  lm.anova <- anova(linear.model)
+  #' Calculate the total sum of squares
+  tss <- sum(lm.anova$'Sum Sq')
+  # Calculate the predictive R^2
+  pred.r.squared <- 1-PRESS(linear.model)/(tss)
+  
+  return(pred.r.squared)
+}
+```
+
+```{r}
+MSPE(model6)
+```
+
+```{r}
+pred_r_squared(model6)
+```
+
+We get a prediction R-squared of 74.3% which is not too good but not bad. There's always scope for improvement.
+
+
+
+
+
+
+
+
+
