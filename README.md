@@ -28,12 +28,12 @@ Currently our data has 380 observations, but as this is a proposal report, we pl
 18. Average price per square feet
 
 Techniques involved:
-1)**Exploratory data analysis**
-2)**Linear Regression**
-3)**Ridge and Lasso Regression**
-4)**Forward and backward feature selection**
-5)**Box-cox Transformation** 
-6)**K-fold cross-validation**
+1)Exploratory data analysis
+2)Linear Regression
+3)Ridge and Lasso Regression
+4)Forward and backward feature selection
+5)Box-cox Transformation
+6)K-fold cross-validation
 
 ### Final model showed the most important variables as:
 1)Number of full bathrooms
