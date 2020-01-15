@@ -27,7 +27,7 @@ Currently our data has 380 observations, but as this is a proposal report, we pl
 17. Patio (categorical)
 18. Average price per square feet
 
-Techniques involved:
+### Techniques involved:
 1)Exploratory data analysis
 2)Linear Regression
 3)Ridge and Lasso Regression
