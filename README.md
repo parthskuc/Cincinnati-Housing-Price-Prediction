@@ -36,11 +36,11 @@ Currently our data has 380 observations, but as this is a proposal report, we pl
 6. **K-fold cross-validation**
 
 ### Final model showed the most important variables as:
-1)Number of full bathrooms
-2)Number of bedrooms
-3)Parking Capacity
-4)Zip Code
-5)Total number of rooms
-6)Average price per square feet
-7)Number of half bathrooms 
+1.Number of full bathrooms
+2.Number of bedrooms
+3.Parking Capacity
+4.Zip Code
+5.Total number of rooms
+6.Average price per square feet
+7.Number of half bathrooms 
 
