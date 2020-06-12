@@ -15,7 +15,8 @@ Currently our data has 380 observations, but as this is a proposal report, we pl
 4. Number of bedrooms 
 5. Number of full bathrooms 
 6. Number of half bathrooms 
-7. Stories 8. Year Built 
+7. Stories 
+8. Year Built 
 9. Sqft 
 10. Lot Size 
 11. Total number of rooms 
